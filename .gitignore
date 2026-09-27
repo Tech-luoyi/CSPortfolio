@@ -1,0 +1,21 @@
+node_modules
+.nuxt
+.nuxt_old
+.output
+.output_old2
+.output_old_trash
+data
+uploads
+.env
+dist
+.DS_Store
+*.log
+
+# Local backups and generated archives
+*.bak-*
+*.db
+*.sqlite
+*.sqlite3
+*.tgz
+*.tar
+*.tar.gz

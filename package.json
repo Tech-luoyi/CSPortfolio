@@ -1,0 +1,17 @@
+{
+  "name": "resume-portal",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "nuxt build",
+    "dev": "nuxt dev",
+    "generate": "nuxt generate",
+    "preview": "nuxt preview",
+    "start": "node .output/server/index.mjs"
+  },
+  "dependencies": {
+    "busboy": "^1.6.0",
+    "nuxt": "^3.13.0",
+    "vue": "^3.5.0"
+  }
+}

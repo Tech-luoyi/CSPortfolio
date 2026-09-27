@@ -1,0 +1,164 @@
+/* 全局样式 —— 复刻掌上锡院 App 视觉体系
+   主色 #1F2937 / 背景 #F8F9FC / 卡片白色 / 圆角 14px / 轻阴影 */
+:root {
+  --primary: #1F2937;
+  --primary-soft: #374151;
+  --bg: #F8F9FC;
+  --card: #FFFFFF;
+  --text: #1F2937;
+  --muted: #9CA3AF;
+  --muted2: #6B7280;
+  --line: #E5E7EB;
+  --danger: #DC2626;
+  --ok: #059669;
+  --warn: #D97706;
+  --info: #2563EB;
+  --radius: 14px;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Segoe UI", sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.7;
+  font-size: 15px;
+}
+
+/* ---------- 顶栏 ---------- */
+.appbar {
+  position: sticky; top: 0; z-index: 50;
+  background: rgba(255,255,255,.92);
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--line);
+}
+.appbar-inner {
+  max-width: 720px; margin: 0 auto; padding: 0 16px;
+  height: 56px; display: flex; align-items: center; justify-content: space-between;
+}
+.appbar-brand { display: flex; align-items: center; gap: 10px; font-weight: 700; color: var(--primary); }
+.logo {
+  width: 34px; height: 34px; border-radius: 10px;
+  background: var(--primary); color: #fff;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 13px; font-weight: 800; letter-spacing: -.5px;
+}
+.appbar-nav { display: flex; gap: 4px; }
+.appbar-nav a {
+  padding: 6px 12px; border-radius: 10px; font-size: 13.5px;
+  color: var(--muted2); text-decoration: none; font-weight: 500;
+}
+.appbar-nav a:hover { background: var(--bg); color: var(--primary); }
+.appbar-nav a.router-link-active { background: rgba(31,41,55,.08); color: var(--primary); font-weight: 600; }
+
+/* ---------- 页面容器 ---------- */
+.page { max-width: 720px; margin: 0 auto; padding: 24px 16px 60px; }
+
+/* ---------- 卡片 ---------- */
+.card {
+  background: var(--card);
+  border-radius: var(--radius);
+  border: 1px solid var(--line);
+  box-shadow: 0 4px 20px rgba(0,0,0,.04);
+  padding: 20px;
+  margin-bottom: 16px;
+}
+
+/* ---------- 表单 ---------- */
+.field { margin-bottom: 16px; }
+.field label { display: block; font-size: 13.5px; font-weight: 600; margin-bottom: 6px; color: var(--primary); }
+.field .tip { font-size: 12px; color: var(--muted); font-weight: 400; margin-left: 4px; }
+.input, .select, .textarea {
+  width: 100%; padding: 11px 14px; font-size: 14.5px;
+  border: 1px solid var(--line); border-radius: var(--radius);
+  background: var(--card); color: var(--text); outline: none;
+  transition: border-color .15s, box-shadow .15s;
+  font-family: inherit;
+}
+.input:focus, .select:focus, .textarea:focus {
+  border-color: var(--primary); box-shadow: 0 0 0 3px rgba(31,41,55,.08);
+}
+.input::placeholder, .textarea::placeholder { color: #C4C9D4; }
+.textarea { resize: vertical; min-height: 76px; }
+.select { appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%239CA3AF' stroke-width='2.5'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 14px center; padding-right: 36px; }
+
+/* ---------- 按钮 ---------- */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  width: 100%; padding: 13px 20px; font-size: 15px; font-weight: 600;
+  background: var(--primary); color: #fff;
+  border: none; border-radius: var(--radius); cursor: pointer;
+  transition: opacity .15s, transform .1s;
+  font-family: inherit;
+}
+.btn:hover { opacity: .9; }
+.btn:active { transform: scale(.985); }
+.btn:disabled { opacity: .45; cursor: not-allowed; }
+.btn-sm { width: auto; padding: 7px 14px; font-size: 13px; border-radius: 10px; }
+.btn-ghost { background: transparent; color: var(--primary); border: 1px solid var(--line); }
+.btn-ghost:hover { background: var(--bg); opacity: 1; }
+.btn-danger { background: var(--danger); }
+.btn-ok { background: var(--ok); }
+.btn-info { background: var(--info); }
+.btn-warn { background: var(--warn); }
+
+/* ---------- 标签页（部门 / 状态筛选） ---------- */
+.tabs { display: flex; gap: 8px; flex-wrap: wrap; }
+.tab {
+  display: inline-flex; align-items: center;
+  padding: 7px 14px; font-size: 13px; font-weight: 600; font-family: inherit;
+  border: 1px solid var(--line); border-radius: 10px;
+  background: transparent; color: var(--primary); cursor: pointer;
+  transition: background .15s, color .15s, border-color .15s;
+}
+.tab:hover { background: var(--bg); }
+.tab.active { background: var(--primary); color: #fff; border-color: var(--primary); }
+.tab .num { margin-left: 6px; font-weight: 500; opacity: .6; }
+.tab.active .num { opacity: .85; }
+
+/* ---------- 列表空态 ---------- */
+.empty { text-align: center; color: var(--muted); padding: 40px 0; font-size: 13.5px; }
+
+/* ---------- 状态徽章 ---------- */
+.badge {
+  display: inline-block; padding: 2px 10px; border-radius: 999px;
+  font-size: 12px; font-weight: 600;
+}
+.badge.pending { background: #FEF3C7; color: #A05A00; }
+.badge.reviewing { background: #DBEAFE; color: #1D4ED8; }
+.badge.accepted { background: #D1FAE5; color: #047857; }
+.badge.rejected { background: #FEE2E2; color: #B91C1C; }
+
+/* ---------- 提示条 ---------- */
+.alert { padding: 12px 16px; border-radius: 12px; font-size: 13.5px; margin-bottom: 16px; }
+.alert-err { background: #FEF2F2; color: #B91C1C; border: 1px solid #FECACA; }
+.alert-ok { background: #ECFDF5; color: #047857; border: 1px solid #A7F3D0; }
+
+/* ---------- 页脚 ---------- */
+.footer {
+  text-align: center; color: var(--muted); font-size: 12.5px;
+  padding: 30px 16px 40px; line-height: 2;
+}
+.footer b { color: var(--muted2); }
+
+/* ---------- 公告横幅 ---------- */
+.announcement {
+  display: flex; align-items: flex-start; gap: 10px;
+  background: linear-gradient(135deg, #1F2937, #374151);
+  color: #F3F4F6; border-radius: var(--radius);
+  padding: 14px 18px; margin-bottom: 16px; font-size: 13.5px;
+}
+.announcement .icon { flex-shrink: 0; margin-top: 1px; }
+
+/* ---------- 提交成功码 ---------- */
+.code-box {
+  background: linear-gradient(135deg, #1F2937, #374151);
+  color: #fff; border-radius: var(--radius);
+  text-align: center; padding: 28px 20px; margin: 16px 0;
+}
+.code-box .big { font-size: 30px; font-weight: 800; letter-spacing: 2px; margin: 8px 0; font-family: Consolas, monospace; }
+
+@media (max-width: 520px) {
+  .appbar-nav a { padding: 6px 8px; font-size: 12.5px; }
+  .page { padding-top: 18px; }
+}
