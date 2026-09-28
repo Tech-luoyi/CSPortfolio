@@ -1,3 +1,5 @@
+import { adminApp } from '../../../infrastructure/bootstrap'
+
 // 修改账号：改密码 / 停用启用 / 改角色部门（仅超级管理员，含自锁防护）
 export default defineEventHandler(async (event) => {
   const me = requireIdentity(event)
@@ -19,7 +21,7 @@ export default defineEventHandler(async (event) => {
       ![true, false, 0, 1, '0', '1'].includes(body.is_active)) {
     throw createError({ statusCode: 400, statusMessage: '启用状态不合法' })
   }
-  const target = getAdminById(id) as any
+  const target = adminApp.getById(id) as any
   if (!target) throw createError({ statusCode: 404, statusMessage: '账号不存在' })
 
   // 自锁防护 1：禁止改自己的 role
@@ -36,38 +38,38 @@ export default defineEventHandler(async (event) => {
   if (body.password !== undefined) {
     const pw = String(body.password)
     if (pw.length < 8 || pw.length > 128) throw createError({ statusCode: 400, statusMessage: '密码需为 8-128 位' })
-    updateAdminPassword(id, pw)
-    audit(me.id, me.username, 'user_password', target.username, '')
+    adminApp.updatePassword(id, pw)
+    adminApp.audit(me.id, me.username, 'user_password', target.username, '')
   }
 
   // 停用 / 启用
   if (body.is_active !== undefined) {
     const active = body.is_active === true || body.is_active === 1 || body.is_active === '1'
     // 自锁防护 3：禁止停用最后一个 active super
-    if (!active && target.role === 'super' && countActiveSupers(id) === 0) {
+    if (!active && target.role === 'super' && adminApp.countActiveSupers(id) === 0) {
       throw createError({ statusCode: 400, statusMessage: '不能停用最后一个超级管理员' })
     }
-    setAdminActive(id, active)
-    audit(me.id, me.username, active ? 'user_enable' : 'user_disable', target.username, '')
+    adminApp.setActive(id, active)
+    adminApp.audit(me.id, me.username, active ? 'user_enable' : 'user_disable', target.username, '')
   }
 
   // 改角色（改自己已被上面拦截）
   if (body.role !== undefined) {
     const role = body.role === 'super' ? 'super' : 'dept'
     // 自锁防护 4：禁止降级最后一个 active super
-    if (target.role === 'super' && role !== 'super' && countActiveSupers(id) === 0) {
+    if (target.role === 'super' && role !== 'super' && adminApp.countActiveSupers(id) === 0) {
       throw createError({ statusCode: 400, statusMessage: '不能降级最后一个超级管理员' })
     }
     const dept = role === 'super' ? '' : String(body.dept || target.dept || '').trim()
     if (role === 'dept' && !DEPT_KEYS.includes(dept)) throw createError({ statusCode: 400, statusMessage: '部门不合法' })
-    updateAdminRole(id, role, dept)
-    audit(me.id, me.username, 'user_role', target.username, `${target.role} -> ${role}`)
+    adminApp.updateRole(id, role, dept)
+    adminApp.audit(me.id, me.username, 'user_role', target.username, `${target.role} -> ${role}`)
   } else if (body.dept !== undefined && target.role !== 'super') {
     // 仅改部门（dept 账号）
     const dept = String(body.dept).trim()
     if (!DEPT_KEYS.includes(dept)) throw createError({ statusCode: 400, statusMessage: '部门不合法' })
-    updateAdminRole(id, 'dept', dept)
-    audit(me.id, me.username, 'user_dept', target.username, `dept=${dept}`)
+    adminApp.updateRole(id, 'dept', dept)
+    adminApp.audit(me.id, me.username, 'user_dept', target.username, `dept=${dept}`)
   }
 
   return { ok: true }

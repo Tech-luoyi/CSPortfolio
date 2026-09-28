@@ -1,0 +1,47 @@
+# Merge this site block into the existing Caddyfile; do not replace unrelated sites.
+jxtd.remotea2a.vip {
+    encode zstd gzip
+
+    # Keep access logs useful without retaining query strings or credentials.
+    log {
+        output file /data/logs/jxtd-access.log {
+            roll_size 25MiB
+            roll_keep 10
+            roll_keep_for 168h
+        }
+        format filter {
+            request>uri regexp "\\?.*" "?[redacted]"
+            request>headers>Cookie delete
+            request>headers>Authorization delete
+            request>headers>X-Forwarded-For delete
+        }
+    }
+
+    # Nuxt emits content-hashed files under /_nuxt/.
+    @fingerprinted path /_nuxt/*
+    header @fingerprinted Cache-Control "public, max-age=31536000, immutable"
+
+    # Match the verified production total-body cap; app-side limits remain
+    # 25 MiB for resumes and 1 GiB for work files.
+    request_body {
+        max_size 1.2GB
+    }
+
+    header {
+        X-Content-Type-Options nosniff
+        X-Frame-Options DENY
+        Referrer-Policy no-referrer
+        Permissions-Policy "camera=(), microphone=(), geolocation=()"
+        Strict-Transport-Security "max-age=31536000; includeSubDomains"
+        -Server
+        -X-Powered-By
+    }
+
+    reverse_proxy jxtd:3000 {
+        # Keep explicit: never trust a client-supplied X-Forwarded-For value.
+        header_up X-Forwarded-For {http.request.remote.host}
+        health_uri /api/health/ready
+        health_interval 30s
+        health_timeout 5s
+    }
+}

@@ -6,9 +6,9 @@
 // 2. 魔数校验 —— 文件落盘后读文件头比对真实类型，扩展名不再单独可信
 // 3. 失败回滚 —— 任何一步出错都把已写入的文件删干净，不留孤儿文件
 import busboy from 'busboy'
-import { createWriteStream } from 'node:fs'
-import { mkdir, open, unlink } from 'node:fs/promises'
-import { join } from 'node:path'
+import { submissionsApp } from '../infrastructure/bootstrap'
+import { storageApp } from '../infrastructure/bootstrap'
+import { rateLimit, validateSubmission } from '../utils/auth'
 
 // 单个文件大小：简历 25 MiB，作品附件 1 GiB。流式写盘，避免把大作品读进内存。
 const MAX_RESUME_BYTES = 25 * 1024 * 1024
@@ -16,6 +16,23 @@ const MAX_WORK_BYTES = 1024 * 1024 * 1024
 const MAX_FILES = 2
 const MAX_FIELDS = 20
 const MAX_FIELD_BYTES = 4 * 1024
+const MAX_TOTAL_REQUEST_BYTES = MAX_RESUME_BYTES + MAX_WORK_BYTES + MAX_FIELDS * MAX_FIELD_BYTES + 256 * 1024
+
+// 中文文件名修复：multipart 的 filename 历史上按 latin1 解码（busboy 的
+// defParamCharset 默认值就是 latin1），若出现典型双重编码特征（UTF-8 字节被
+// 当作 latin1 字符），还原之。defParamCharset 只覆盖部分解析路径，这里做双保险。
+function fixFilename(name: string): string {
+  if (!name) return name
+  // 特征：出现 U+00C0-U+00FF 高位字符 —— 纯 ASCII / 已是正常中文的名字不含此区间
+  if (!/[\u00c0-\u00ff]/.test(name)) return name
+  try {
+    const buf = Buffer.from(name, 'latin1')
+    const decoded = buf.toString('utf8')
+    // Buffer.toString('utf8') 遇到非法序列会产出 U+FFFD；无替换符且确有变化才采用
+    if (!decoded.includes('\ufffd') && decoded !== name) return decoded
+  } catch (e) { /* 还原失败则原样返回 */ }
+  return name
+}
 
 // 简历只收文档/图片；作品额外允许压缩包
 const RESUME_EXT = new Set(['pdf', 'jpg', 'jpeg', 'png'])
@@ -30,21 +47,15 @@ const SIG_PDF = Buffer.from('%PDF-')
 const SIG_PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
 
 // 读文件头判断真实类型（文件头不会因为改扩展名而改变）
-async function sniffKind(path: string): Promise<string | null> {
-  const handle = await open(path, 'r')
-  try {
-    const head = Buffer.alloc(8)
-    const { bytesRead } = await handle.read(head, 0, 8, 0)
-    if (bytesRead < 4) return null
-    if (head.subarray(0, 5).equals(SIG_PDF)) return 'pdf'
-    if (head[0] === 0xff && head[1] === 0xd8 && head[2] === 0xff) return 'jpg'
-    if (head.subarray(0, 8).equals(SIG_PNG)) return 'png'
-    // ZIP 的本地文件头 / 空归档尾记录
-    if (head[0] === 0x50 && head[1] === 0x4b) return 'zip'
-    return null
-  } finally {
-    await handle.close()
-  }
+async function sniffKind(name: string): Promise<string | null> {
+  const head = await storageApp.readPrefix(name, 8)
+  if (head.length < 4) return null
+  if (head.subarray(0, 5).equals(SIG_PDF)) return 'pdf'
+  if (head[0] === 0xff && head[1] === 0xd8 && head[2] === 0xff) return 'jpg'
+  if (head.subarray(0, 8).equals(SIG_PNG)) return 'png'
+  // ZIP 的本地文件头 / 空归档尾记录
+  if (head[0] === 0x50 && head[1] === 0x4b) return 'zip'
+  return null
 }
 
 function extOf(filename: string): string {
@@ -56,6 +67,7 @@ interface Stored {
   originalName: string
   size: number
   ext: string
+  temporaryName: string
 }
 
 export default defineEventHandler(async (event) => {
@@ -69,13 +81,14 @@ export default defineEventHandler(async (event) => {
   if (!contentType.startsWith('multipart/form-data')) {
     throw createError({ statusCode: 400, statusMessage: '请求格式不正确' })
   }
-
-  const uploadDir = process.env.UPLOAD_DIR || join(process.cwd(), 'uploads')
-  await mkdir(uploadDir, { recursive: true })
+  const contentLength = Number(req.headers['content-length'] || 0)
+  if (Number.isFinite(contentLength) && contentLength > MAX_TOTAL_REQUEST_BYTES) {
+    throw createError({ statusCode: 413, statusMessage: '上传请求超过总大小限制' })
+  }
 
   const fields: Record<string, string> = {}
   const stored: Record<string, Stored> = {}
-  const writtenPaths: string[] = []
+  const writtenNames: string[] = []
   const outputs: any[] = []
   let failure: any = null
 
@@ -86,6 +99,9 @@ export default defineEventHandler(async (event) => {
 
   const bus = busboy({
     headers: req.headers,
+    // busboy 的 defParamCharset 默认 latin1：浏览器按 UTF-8 发的 filename
+    // 会被逐字节当成 latin1 字符再以 UTF-8 写库，导致中文文件名双重编码乱码。
+    defParamCharset: 'utf8',
     limits: {
       fileSize: MAX_WORK_BYTES,
       files: MAX_FILES,
@@ -106,7 +122,7 @@ export default defineEventHandler(async (event) => {
 
   bus.on('file', (name: string, stream: any, info: any) => {
     const slot = name === 'resume' ? 'resume' : name === 'work' ? 'work' : null
-    const originalName = String(info?.filename || '')
+    const originalName = fixFilename(String(info?.filename || ''))
     const ext = extOf(originalName)
     const allowed = slot === 'resume' ? RESUME_EXT : slot === 'work' ? WORK_EXT : null
 
@@ -126,10 +142,10 @@ export default defineEventHandler(async (event) => {
       return
     }
 
-    const storageName = safeFileName(originalName)
-    const target = join(uploadDir, storageName)
-    writtenPaths.push(target)
-    const output = createWriteStream(target, { flags: 'wx' })
+    const storageName = storageApp.newName(originalName)
+    const temporaryName = `.${storageName}.part`
+    writtenNames.push(storageName, temporaryName)
+    const output = storageApp.createWriteStream(temporaryName) as any
     outputs.push(output)
 
     const maxBytes = slot === 'resume' ? MAX_RESUME_BYTES : MAX_WORK_BYTES
@@ -137,7 +153,7 @@ export default defineEventHandler(async (event) => {
     const maxText = slot === 'resume' ? '25MB' : '1GB'
     let observedBytes = 0
     let truncated = false
-    const record: Stored = { storageName, originalName, size: 0, ext }
+    const record: Stored = { storageName, originalName, size: 0, ext, temporaryName }
 
     // 简历有比 busboy 全局上限更小的独立上限，因此同时做按字段计数。
     // 超过上限时必须先把 source 从 pipe 上摘下来、收尾输出流、再把 source
@@ -192,14 +208,13 @@ export default defineEventHandler(async (event) => {
   })
 
   // 兜底：正常情况下 pending 早已 resolve；万一还有流悬挂也不能让请求永远挂着
-  await Promise.race([
-    Promise.all(pending),
-    new Promise((resolve) => setTimeout(resolve, 10_000))
-  ])
+  // Do not validate or rename until every destination stream has finished.
+  // A timeout here used to allow a still-writing partial file to be committed.
+  await Promise.all(pending)
 
   // 任何一步失败都把本次已写入的文件删干净，不留孤儿
   const rollback = async () => {
-    await Promise.all(writtenPaths.map(p => unlink(p).catch(() => {})))
+    await Promise.all(writtenNames.map(name => storageApp.delete(name).catch(() => {})))
   }
 
   if (failure) {
@@ -216,7 +231,7 @@ export default defineEventHandler(async (event) => {
   for (const [slot, label] of [['resume', '简历'], ['work', '作品']] as const) {
     const item = stored[slot]
     if (!item) continue
-    const actual = await sniffKind(join(uploadDir, item.storageName))
+    const actual = await sniffKind(item.temporaryName)
     if (!actual || actual !== KIND_OF_EXT[item.ext]) {
       await rollback()
       throw createError({
@@ -235,14 +250,24 @@ export default defineEventHandler(async (event) => {
 
   // 学号唯一性预检查（DB 层 UNIQUE 仍作为最终兜底）。
   // 409 回显已有记录的投递码（P1-3：学生自己的信息，不构成泄露；免去「反复试」）
-  const existing = findByStudentId(fields.student_id) as any
+  const existing = submissionsApp.findByStudent(fields.student_id) as any
   if (existing) {
     await rollback()
     throw createError({ statusCode: 409, statusMessage: `该学号已投递过，你的投递码是 ${existing.code}，请截图保存并到查询页查看进度` })
   }
 
   try {
-    const code = createSubmission({
+    // Files become visible only after validation, via same-filesystem atomic rename.
+    for (const item of Object.values(stored)) {
+      await storageApp.commit(item.temporaryName, item.storageName)
+    }
+  } catch {
+    await rollback()
+    throw createError({ statusCode: 500, statusMessage: '文件保存失败，请稍后重试' })
+  }
+
+  try {
+    const code = submissionsApp.create({
       name: fields.name,
       student_id: fields.student_id,
       qq: fields.qq,
@@ -260,7 +285,7 @@ export default defineEventHandler(async (event) => {
     await rollback()
     if (String(err?.message || '').includes('UNIQUE')) {
       // DB UNIQUE 兜底（并发竞态）：同样回显已有记录的投递码
-      const dup = findByStudentId(fields.student_id) as any
+      const dup = submissionsApp.findByStudent(fields.student_id) as any
       throw createError({
         statusCode: 409,
         statusMessage: dup

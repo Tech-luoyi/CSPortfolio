@@ -1,3 +1,6 @@
+import { submissionsApp } from '../../../../infrastructure/bootstrap'
+import { adminApp } from '../../../../infrastructure/bootstrap'
+
 // 超管改派投递到其它部门（独立接口：语义清晰、权限边界独立、只在 super 路由加守卫）
 export default defineEventHandler(async (event) => {
   const me = requireIdentity(event)
@@ -10,7 +13,7 @@ export default defineEventHandler(async (event) => {
   const to = String(body?.dept ?? body?.to ?? '').trim()
   if (!DEPT_KEYS.includes(to)) throw createError({ statusCode: 400, statusMessage: '目标部门不合法' })
 
-  const row = getSubmissionById(id) as any
+  const row = submissionsApp.getById(id) as any
   if (!row) throw createError({ statusCode: 404, statusMessage: '记录不存在' })
 
   const from = String(row.dept || '')
@@ -24,7 +27,7 @@ export default defineEventHandler(async (event) => {
     warning = `目标部门（${deptName(to)}）要求作品，但该记录没有作品，请线下补充`
   }
   // 改到文秘部（作品隐藏）时：保留 work_path / work_url 与文件，绝不删除（不可逆）
-  reassignDept(id, to, me.id)
-  audit(me.id, me.username, 'reassign', row.code, `${from} -> ${to}`)
+  submissionsApp.reassign(id, to, me.id)
+  adminApp.audit(me.id, me.username, 'reassign', row.code, `${from} -> ${to}`)
   return { ok: true, warning, from, to }
 })

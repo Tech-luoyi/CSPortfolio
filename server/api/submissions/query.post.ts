@@ -1,3 +1,5 @@
+import { submissionsApp } from '../../infrastructure/bootstrap'
+
 // 凭投递码 + 学号查询审核状态；不再支持仅凭可枚举学号读取个人信息。
 export default defineEventHandler(async (event) => {
   rateLimit(event, 'query', 30, 3600 * 1000)
@@ -7,7 +9,7 @@ export default defineEventHandler(async (event) => {
   if (!/^JX-\d{4}-\d{1,20}$/i.test(code) || !/^[A-Za-z0-9]{6,20}$/.test(studentId)) {
     throw createError({ statusCode: 400, statusMessage: '请输入投递码和学号' })
   }
-  const row = findPublicByCodeAndStudent(code, studentId)
+  const row = submissionsApp.findPublicByCodeAndStudent(code, studentId)
   if (!row) throw createError({ statusCode: 404, statusMessage: '投递码或学号有误' })
   return { ok: true, data: row }
 })
