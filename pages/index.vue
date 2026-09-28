@@ -1,6 +1,7 @@
 <script setup lang="ts">
 // 投递页 —— 无锡学院计算机协会 招新简历作品投递
 import { useDepartments, apiErrorMessage } from '~/composables/useDepartments'
+import { postMultipartWithProgress, type UploadProgress } from '~/composables/useMultipartUpload'
 
 useHead({ title: '简历作品投递 · 无锡学院计算机协会' })
 
@@ -14,6 +15,7 @@ const resumeFile = ref<File | null>(null)
 const workFile = ref<File | null>(null)
 const workInput = ref<HTMLInputElement | null>(null)
 const submitting = ref(false)
+const uploadProgress = ref<UploadProgress | null>(null)
 const error = ref('')
 const isConflict = ref(false)
 const successCode = ref('')
@@ -62,6 +64,8 @@ function onWork(e: any) {
 }
 
 const { data: ann } = await useFetch('/api/announcement')
+const { data: campaignResponse } = await useFetch('/api/campaigns/current')
+const campaign = computed(() => (campaignResponse.value as any)?.campaign)
 
 async function submit() {
   error.value = ''
@@ -96,7 +100,8 @@ async function submit() {
     // 仅作品必填部门才提交 work；文秘部提交会被服务端拒收
     if (workRequired.value && workFile.value) fd.append('work', workFile.value)
 
-    const res: any = await $fetch('/api/submissions', { method: 'POST', body: fd })
+    uploadProgress.value = { loaded: 0, total: 0, percent: 0, bytesPerSecond: 0, remainingSeconds: null }
+    const res: any = await postMultipartWithProgress('/api/submissions', fd, (progress) => { uploadProgress.value = progress })
     successCode.value = res?.code || ''
     if (import.meta.client) window.scrollTo({ top: 0, behavior: 'smooth' })
   } catch (e: any) {
@@ -105,6 +110,7 @@ async function submit() {
     isConflict.value = e?.status === 409 || e?.data?.statusCode === 409
   } finally {
     submitting.value = false
+    if (!successCode.value) uploadProgress.value = null
   }
 }
 
@@ -125,7 +131,7 @@ async function copyCode() {
       <div style="font-size:21px; font-weight:800; color:var(--primary)">无锡学院计算机协会</div>
       <div style="font-size:13px; color:var(--muted); margin-top:4px">WUXI UNIVERSITY COMPUTER ASSOCIATION</div>
       <div style="margin:14px auto 0; max-width:480px; font-size:13.5px; color:var(--muted2)">
-        2026 招新通道 —— 在这里投递你的<b style="color:var(--primary)">简历和作品</b>，
+        {{ campaign?.name || `${campaign?.year || new Date().getFullYear()} 招新` }} —— 在这里投递你的<b style="color:var(--primary)">简历和作品</b>，
         通过审核即可<b style="color:var(--ok)">免试进入无锡学院计算机协会</b>。
       </div>
     </div>
@@ -235,8 +241,19 @@ async function copyCode() {
         <textarea v-model="form.intro" class="textarea" maxlength="200" placeholder="让协会快速认识你：做过什么、会什么、想做什么" />
       </div>
 
+      <div v-if="submitting && uploadProgress" class="upload-progress" role="status" aria-live="polite">
+        <div class="upload-progress-label">
+          <span>正在安全上传… {{ uploadProgress.percent }}%</span>
+          <span v-if="uploadProgress.remainingSeconds !== null">约剩 {{ uploadProgress.remainingSeconds }} 秒</span>
+        </div>
+        <progress :value="uploadProgress.percent" max="100" aria-label="上传进度"></progress>
+        <div class="upload-progress-meta">
+          {{ (uploadProgress.loaded / 1024 / 1024).toFixed(1) }} / {{ (uploadProgress.total / 1024 / 1024).toFixed(1) }} MB
+          · {{ (uploadProgress.bytesPerSecond / 1024 / 1024).toFixed(2) }} MB/s
+        </div>
+      </div>
       <button class="btn" :disabled="submitting || !departments.length" @click="submit">
-        {{ submitting ? '正在提交…' : '提交投递' }}
+        {{ submitting ? '正在上传并提交…' : '提交投递' }}
       </button>
       <div style="text-align:center; font-size:12px; color:var(--muted); margin-top:12px">
         提交即表示同意无锡学院计算机协会在招新审核范围内使用上述信息

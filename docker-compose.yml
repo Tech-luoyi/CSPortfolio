@@ -8,9 +8,11 @@ services:
       # 容器默认是 UTC，而 db.ts 用 datetime('now','localtime') 写投递时间，
       # 不设时区的话管理后台看到的时间会比实际早 8 小时。
       - TZ=Asia/Shanghai
+      - CODE_SEQUENCE_FLOOR_FILE=/runtime/code-sequence-high-water.json
     volumes:
       - ./data:/data
       - ./uploads:/uploads
+      - ./runtime:/runtime
     expose:
       - "3000"
     networks:

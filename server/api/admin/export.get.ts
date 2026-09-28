@@ -1,7 +1,9 @@
+import { submissionsApp } from '../../infrastructure/bootstrap'
+
 // 管理端：导出记录 CSV（含 BOM，Excel 打开不乱码）。非 super 只能导出本部门。
 export default defineEventHandler(async (event) => {
   const me = requireIdentity(event)
-  const rows: any[] = allForExport(me)
+  const rows: any[] = submissionsApp.export(me)
   const header = ['投递码', '姓名', '学号', 'QQ', '手机号', '部门', '作品链接', '状态', '管理员留言', '投递时间']
   const statusMap: Record<string, string> = { pending: '待审核', reviewing: '审核中', accepted: '免试通过', rejected: '未通过' }
   const esc = (v: any) => `"${String(v ?? '').replace(/"/g, '""')}"`

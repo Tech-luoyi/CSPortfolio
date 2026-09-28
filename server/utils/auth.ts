@@ -1,7 +1,8 @@
 // 服务端工具：管理员鉴权 + 限流 + 校验
 import { createHmac, timingSafeEqual } from 'node:crypto'
-import { getAdminById } from './db'
-import type { Identity } from './db'
+import { adminApp, rateLimiter } from '../infrastructure/bootstrap'
+import { requireSessionSecret } from '../infrastructure/config'
+import type { Identity } from '../domain/auth/identity'
 import { DEPT_KEYS, deptPolicy } from './departments'
 
 // ============================================================================
@@ -9,13 +10,7 @@ import { DEPT_KEYS, deptPolicy } from './departments'
 // 旧代码是 SESSION_SECRET || ADMIN_PASSWORD || 'jx-fallback-secret' ——
 // 两者都缺时退化为「公开常量密钥」，任何人都能伪造超管 token，必须删掉这个 fallback。
 // ============================================================================
-const SECRET = (() => {
-  const s = process.env.SESSION_SECRET
-  if (!s || s.length < 16) {
-    throw new Error('SESSION_SECRET 缺失或过短（至少 16 字符）：拒绝启动，避免使用可预测的签名密钥')
-  }
-  return s
-})()
+const SECRET = requireSessionSecret()
 
 const TOKEN_TTL_MS = 30 * 24 * 3600 * 1000
 
@@ -78,34 +73,40 @@ export function requireIdentity(event: any): Identity {
   const cookies = parseCookies(event) as Record<string, string>
   const token = verifyTokenData(cookies?.jx_admin_v2)
   if (!token) throw createError({ statusCode: 401, statusMessage: 'Unauthorized' })
-  const me = getAdminById(token.uid) as any
+  const me = adminApp.getById(token.uid) as any
   // 每请求回查 DB：改派/停用/密码修改/退出立即生效，不依赖客户端 cookie 的内容。
   if (!me || !me.is_active || Number(me.session_version || 1) !== token.sessionVersion) {
     throw createError({ statusCode: 401, statusMessage: 'Unauthorized' })
   }
-  return { id: me.id, username: me.username, role: me.role, dept: me.dept, display_name: me.display_name }
+  const identity = { id: me.id, username: me.username, role: me.role, dept: me.dept, display_name: me.display_name }
+  event.context.identity = identity
+  return identity
 }
 
-// ---------- 内存限流：同 IP 单位时间内最多 N 次 ----------
-// 来源 IP 取自 Caddy 显式覆写的 XFF（见 Caddyfile 的 `header_up X-Forwarded-For {http.request.remote.host}`）；
-// 已实测客户端伪造的 XFF 会被 Caddy 覆盖，无法借此绕过限流。
-// 不要改成读 socket 地址：容器内所有请求的远端都是 Caddy 容器的同一个内网 IP，
-// 那样等于全站共用一个配额桶，一个人就能把所有人挡在门外，比现在更糟。
-const buckets = new Map<string, number[]>()
+// ---------- 限流：可信 IP + 账号双维度 ----------
+// 实现由 bootstrap 组装；目前为单实例内存实现，未来可替换为 Redis。
+export function getClientIp(event: any): string {
+  return getRequestIP(event, { xForwardedFor: true }) || 'unknown'
+}
+
+function enforceRateLimit(key: string, max: number, windowMs: number) {
+  const result = rateLimiter.check(key, { maxAttempts: max, windowMs })
+  if (!result.allowed) {
+    throw createError({
+      statusCode: 429,
+      statusMessage: '请求太频繁，请稍后再试',
+      data: { retryAfterMs: result.retryAfterMs },
+    })
+  }
+}
+
 export function rateLimit(event: any, key: string, max: number, windowMs: number) {
-  const ip = getRequestIP(event, { xForwardedFor: true }) || 'unknown'
-  const k = `${key}:${ip}`
-  const now = Date.now()
-  const list = (buckets.get(k) || []).filter((t: number) => now - t < windowMs)
-  if (list.length >= max) {
-    throw createError({ statusCode: 429, statusMessage: '请求太频繁，请稍后再试' })
-  }
-  list.push(now)
-  buckets.set(k, list)
-  // 简单清理防止内存膨胀
-  if (buckets.size > 5000) {
-    for (const [bk, bl] of buckets) if (bl.every((t: number) => now - t >= windowMs)) buckets.delete(bk)
-  }
+  enforceRateLimit(`${key}:ip:${getClientIp(event)}`, max, windowMs)
+}
+
+export function rateLimitAccount(key: string, account: string, max: number, windowMs: number) {
+  const normalized = String(account || '<missing>').trim().toLowerCase().slice(0, 128)
+  enforceRateLimit(`${key}:account:${normalized}`, max, windowMs)
 }
 
 // ---------- 输入校验 ----------
