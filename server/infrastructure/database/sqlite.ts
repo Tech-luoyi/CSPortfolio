@@ -307,19 +307,13 @@ export function advanceSequenceFloor(year: number, sequence: number): void {
   try {
     mkdirSync(dirname(file), { recursive: true })
     writeFileSync(temporary, `${JSON.stringify(updated, null, 2)}\n`, { flag: 'wx', mode: 0o640 })
-    // fsync on a read-only descriptor fails with EPERM on Windows; open read/write.
-    fd = openSync(temporary, 'r+')
+    fd = openSync(temporary, 'r')
     fsyncSync(fd)
     closeSync(fd)
     fd = undefined
     renameSync(temporary, file)
-    // Windows does not support fsync() on directory handles (EPERM). The file
-    // itself is fsynced above before rename; POSIX systems also sync the parent
-    // directory so the name update is durable across a crash.
-    if (process.platform !== 'win32') {
-      const dirFd = openSync(dirname(file), 'r')
-      try { fsyncSync(dirFd) } finally { closeSync(dirFd) }
-    }
+    const dirFd = openSync(dirname(file), 'r')
+    try { fsyncSync(dirFd) } finally { closeSync(dirFd) }
     sequenceFloors = updated
   } catch (error) {
     if (fd !== undefined) { try { closeSync(fd) } catch { /* preserve original error */ } }

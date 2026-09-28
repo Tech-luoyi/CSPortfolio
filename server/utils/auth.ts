@@ -1,7 +1,6 @@
 // 服务端工具：管理员鉴权 + 限流 + 校验
 import { createHmac, timingSafeEqual } from 'node:crypto'
 import { adminApp, rateLimiter } from '../infrastructure/bootstrap'
-import { requireSessionSecret } from '../infrastructure/config'
 import type { Identity } from '../domain/auth/identity'
 import { DEPT_KEYS, deptPolicy } from './departments'
 
@@ -10,7 +9,13 @@ import { DEPT_KEYS, deptPolicy } from './departments'
 // 旧代码是 SESSION_SECRET || ADMIN_PASSWORD || 'jx-fallback-secret' ——
 // 两者都缺时退化为「公开常量密钥」，任何人都能伪造超管 token，必须删掉这个 fallback。
 // ============================================================================
-const SECRET = requireSessionSecret()
+const SECRET = (() => {
+  const s = process.env.SESSION_SECRET
+  if (!s || s.length < 16) {
+    throw new Error('SESSION_SECRET 缺失或过短（至少 16 字符）：拒绝启动，避免使用可预测的签名密钥')
+  }
+  return s
+})()
 
 const TOKEN_TTL_MS = 30 * 24 * 3600 * 1000
 

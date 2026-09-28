@@ -5,13 +5,15 @@ services:
     env_file:
       - .env
     environment:
-      # 容器默认是 UTC，而 db.ts 用 datetime('now','localtime') 写投递时间，
-      # 不设时区的话管理后台看到的时间会比实际早 8 小时。
+      # SQLite 使用 datetime('now','localtime') 写业务时间；生产统一设置为上海时区。
+      # ADMIN_PASSWORD 只在空 admins 表首次引导时使用，已有账号不会被覆盖。
       - TZ=Asia/Shanghai
+      # 该文件位于 SQLite 之外，是投递码防回退护栏，必须随 runtime/ 一起备份。
       - CODE_SEQUENCE_FLOOR_FILE=/runtime/code-sequence-high-water.json
     volumes:
       - ./data:/data
       - ./uploads:/uploads
+      # data、uploads、runtime 都是持久化目录；不要用旧数据库直接覆盖 data/。
       - ./runtime:/runtime
     expose:
       - "3000"

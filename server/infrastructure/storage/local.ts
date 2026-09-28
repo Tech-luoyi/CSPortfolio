@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { createReadStream, createWriteStream, mkdirSync, type WriteStream } from 'node:fs'
 import { mkdir, open, rename, rm, stat } from 'node:fs/promises'
-import { basename, extname, isAbsolute, join, relative, resolve, sep } from 'node:path'
+import { basename, extname, join, resolve } from 'node:path'
 import { pipeline } from 'node:stream/promises'
 import type { Readable } from 'node:stream'
 import type { FileStorage } from '../../repositories/contracts'
@@ -16,10 +16,7 @@ export class LocalFileStorage implements FileStorage {
   private path(name: string) {
     if (!name || basename(name) !== name || name.includes('..')) throw new Error('invalid storage key')
     const target = resolve(this.root, name)
-    const relativePath = relative(this.root, target)
-    if (!relativePath || relativePath === '..' || relativePath.startsWith('..' + sep) || isAbsolute(relativePath)) {
-      throw new Error('storage key escaped root')
-    }
+    if (!target.startsWith(`${this.root}/`)) throw new Error('storage key escaped root')
     return target
   }
 
